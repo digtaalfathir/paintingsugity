@@ -10,39 +10,87 @@ const PAGE = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Update Web</title>
 <style>
-  body { font-family: sans-serif; max-width: 420px; margin: 60px auto; padding: 0 16px; }
-  label { display: block; margin: 16px 0 6px; }
-  input, button { font-size: 16px; width: 100%; box-sizing: border-box; padding: 10px; }
-  button { margin-top: 20px; cursor: pointer; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1f2937; background: #f3f4f6; }
+  main { width: 100%; max-width: 420px; background: #fff; border-radius: 12px; padding: 32px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 8px 24px rgba(0,0,0,.06); }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  p { margin: 0; color: #6b7280; font-size: 14px; line-height: 1.5; }
+  label { display: block; margin: 20px 0 6px; font-size: 14px; font-weight: 600; }
+  input { width: 100%; padding: 10px 12px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; }
+  input:focus-visible, button:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+  button { width: 100%; margin-top: 24px; padding: 12px; font-size: 16px; font-weight: 600; color: #fff;
+    background: #2563eb; border: 0; border-radius: 8px; cursor: pointer; }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #93c5fd; cursor: wait; }
+  #status { margin-top: 16px; min-height: 21px; }
+  #status.error { color: #b91c1c; }
+  #wait { text-align: center; }
+  #wait p { margin-top: 8px; }
+  .spinner { width: 40px; height: 40px; margin: 0 auto 20px; border: 4px solid #dbeafe; border-top-color: #2563eb;
+    border-radius: 50%; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 4s; } }
 </style>
-<h1>Update Web</h1>
-<form>
-  <label for="pw">Password</label>
-  <input id="pw" type="password" required>
-  <label for="file">File HTML baru</label>
-  <input id="file" type="file" accept=".html" required>
-  <button>Upload</button>
-</form>
-<p id="status" role="status"></p>
+<main>
+  <form>
+    <h1>Update Web</h1>
+    <p>Pilih file HTML terbaru untuk menggantikan halaman utama.</p>
+    <label for="pw">Password</label>
+    <input id="pw" type="password" autocomplete="current-password" required>
+    <label for="file">File HTML baru</label>
+    <input id="file" type="file" accept=".html" required>
+    <button>Upload</button>
+    <p id="status" role="status"></p>
+  </form>
+  <div id="wait" role="status" hidden>
+    <div class="spinner"></div>
+    <h1>Upload berhasil</h1>
+    <p>Web sedang diperbarui, biasanya sekitar 1 menit.<br>Anda akan dialihkan otomatis, jangan tutup halaman ini.</p>
+    <p id="elapsed"></p>
+  </div>
+</main>
 <script>
   const form = document.querySelector('form'), status = document.getElementById('status');
+  const button = form.querySelector('button');
+  const live = () => fetch('/?t=' + Date.now(), { cache: 'no-store' }).then((r) => r.text()).catch(() => null);
+
+  // Tunggu sampai halaman utama benar-benar berubah, baru redirect (maksimal 2 menit).
+  const waitAndRedirect = (old) => {
+    form.hidden = true;
+    document.getElementById('wait').hidden = false;
+    const start = Date.now();
+    const timer = setInterval(async () => {
+      const sec = Math.round((Date.now() - start) / 1000);
+      document.getElementById('elapsed').textContent = 'Menunggu... ' + sec + ' detik';
+      if (sec % 5) return;
+      const now = sec >= 120 ? 'timeout' : await live();
+      if (now !== null && now !== old) { clearInterval(timer); location.href = '/'; }
+    }, 1000);
+  };
+
   form.onsubmit = (e) => {
     e.preventDefault();
     const reader = new FileReader();
     reader.onload = async () => {
-      form.querySelector('button').disabled = true;
+      button.disabled = true;
+      status.className = '';
       status.textContent = 'Mengupload...';
       try {
+        const old = await live();
         const res = await fetch('', {
           method: 'POST',
           headers: { 'x-password': document.getElementById('pw').value },
           body: reader.result.split(',')[1], // base64 saja, tanpa prefix data:
         });
+        if (res.ok) return waitAndRedirect(old);
         status.textContent = await res.text();
       } catch {
         status.textContent = 'Gagal: koneksi bermasalah, coba lagi.';
       }
-      form.querySelector('button').disabled = false;
+      status.className = 'error';
+      button.disabled = false;
     };
     reader.readAsDataURL(document.getElementById('file').files[0]);
   };
